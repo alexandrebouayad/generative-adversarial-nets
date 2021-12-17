@@ -26,22 +26,21 @@ class ImageLogger(keras.callbacks.Callback):
         generated_images = self.model(noise)
         generated_images = tf.squeeze(generated_images, axis=-1)
 
-        with plt.ioff():
-            plt.figure(figsize=(5, 5))
-            for idx, image in enumerate(generated_images, start=1):
-                plt.subplot(5, 5, idx)
-                plt.imshow(image, cmap="gray", vmin=-1, vmax=1)
-                plt.axis("off")
-            plt.tight_layout()
-            plt.savefig(IMAGE_DIR / f"{epoch}.png")
-            plt.close()
+        plt.figure(figsize=(5, 5))
+        for idx, image in enumerate(generated_images, start=1):
+            plt.subplot(5, 5, idx)
+            plt.imshow(image, cmap="gray", vmin=-1, vmax=1)
+            plt.axis("off")
+        plt.tight_layout()
+        plt.savefig(IMAGE_DIR / f"{epoch}.png")
+        plt.close()
 
 
 (x_train, _), (x_test, _) = keras.datasets.mnist.load_data()
-all_digits = np.concatenate([x_train, x_test])
-all_digits = all_digits.astype("float32") / 127.5 - 1.0
-all_digits = np.expand_dims(all_digits, axis=-1)
-dataset = tf.data.Dataset.from_tensor_slices(all_digits)
+real_images = np.concatenate([x_train, x_test])
+real_images = real_images.astype("float32") / 127.5 - 1.0
+real_images = np.expand_dims(real_images, axis=-1)
+dataset = tf.data.Dataset.from_tensor_slices(real_images)
 buffer_size = len(dataset)
 dataset = dataset.shuffle(buffer_size).batch(BATCH_SIZE)
 
