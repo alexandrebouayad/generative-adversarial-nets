@@ -1,13 +1,21 @@
+import numpy as np
 import tensorflow as tf
-from tensorflow.keras import Input, Model, Sequential, layers
+from tensorflow.keras import Model, Sequential, layers
 
 
-class GenerativeAdversarialNet(Model):
-    def __init__(self, latent_dim):
+class GAN(Model):
+    def __init__(self, img_rows, ing_columns, img_channels, latent_dim):
         super().__init__()
-        self.discriminator = Sequential(
+        self.img_shape = img_rows, ing_columns, img_channels
+        self.latent_dim = latent_dim
+        self.discriminator = self._build_discriminator()
+        self.generator = self._build_generator()
+        self.combined = Sequential([self.generator, self.discriminator])
+
+    def _build_discriminator(self):
+        return Sequential(
             [
-                Input(shape=(28, 28, 1)),
+                # layers.InputLayer(self.img_shape),
                 layers.Conv2D(
                     filters=64,
                     kernel_size=(3, 3),
@@ -22,14 +30,15 @@ class GenerativeAdversarialNet(Model):
                     padding="same",
                 ),
                 layers.LeakyReLU(alpha=0.2),
-                layers.GlobalMaxPooling2D(),
-                layers.Dense(1),
-            ],
-            name="discriminator",
+                layers.GlobalMaxPool2D(),
+                layers.Dense(units=1),
+            ]
         )
-        self.generator = Sequential(
+
+    def _build_generator(self):
+        return Sequential(
             [
-                Input(shape=(latent_dim,)),
+                # layers.InputLayer((self.latent_dim,)),
                 layers.Dense(7 * 7 * 128),
                 layers.LeakyReLU(alpha=0.2),
                 layers.Reshape((7, 7, 128)),
@@ -47,52 +56,43 @@ class GenerativeAdversarialNet(Model):
                     padding="same",
                 ),
                 layers.LeakyReLU(alpha=0.2),
-                layers.Conv2D(1, (7, 7), padding="same", activation="sigmoid"),
-            ],
-            name="generator",
+                layers.Conv2D(
+                    filters=1,
+                    kernel_size=(7, 7),
+                    padding="same",
+                    activation="sigmoid",
+                ),
+            ]
         )
-        self.latent_dim = latent_dim
+
+    def call(self, inputs):
+        return self.generator(inputs)
+
+    def compile(self, d_optimizer, g_optimizer, loss):
+        super().compile()
+        self.discriminator.compile(d_optimizer, loss)
+        self.combined.compile(g_optimizer, loss)
 
     def train_step(self, real_images):
-        # real_images, _ = data
+        if isinstance(real_images, tuple):
+            real_images = real_images[0]
         batch_size = tf.shape(real_images)[0]
-        latent_input_shape = batch_size, self.latent_dim
+        latent_shape = batch_size, self.latent_dim
 
-        random_latent_vectors = tf.random.normal(latent_input_shape)
-        generated_images = self.generator(random_latent_vectors)
-        combined_images = tf.concat([generated_images, real_images], axis=0)
-        labels = tf.concat(
-            [tf.ones((batch_size, 1)), tf.zeros((batch_size, 1))],
-            axis=0,
-        )
-        labels += 0.05 * tf.random.uniform(tf.shape(labels))
+        noise = tf.random.normal(latent_shape)
+        generated_images = self.generator(noise)
+        images = tf.concat([real_images, generated_images], axis=0)
+        zeros = tf.zeros((batch_size, 1))
+        ones = tf.ones((batch_size, 1))
+        labels = tf.concat([zeros, ones], axis=0)
+        d_loss = self.discriminator.train_step((images, labels))
+        d_loss["d_loss"] = d_loss.pop("loss")
 
-        with tf.GradientTape() as tape:
-            predictions = self.discriminator(combined_images)
-            d_loss = self.compiled_loss(
-                labels,
-                predictions,
-                regularization_losses=self.losses,
-            )
+        noise = tf.random.normal(latent_shape)
+        labels = tf.zeros((batch_size, 1))
+        self.discriminator.trainable = False
+        g_loss = self.combined.train_step((noise, labels))
+        self.discriminator.trainable = True
+        g_loss["g_loss"] = g_loss.pop("loss")
 
-        grads = tape.gradient(d_loss, self.discriminator.trainable_weights)
-        grads_and_vars = zip(grads, self.discriminator.trainable_weights)
-        self.optimizer.apply_gradients(grads_and_vars)
-
-        random_latent_vectors = tf.random.normal(latent_input_shape)
-        fooling_labels = tf.zeros((batch_size, 1))
-
-        with tf.GradientTape() as tape:
-            generated_images = self.generator(random_latent_vectors)
-            predictions = self.discriminator(generated_images)
-            g_loss = self.compiled_loss(
-                fooling_labels,
-                predictions,
-                regularization_losses=self.losses,
-            )
-
-        grads = tape.gradient(g_loss, self.generator.trainable_weights)
-        grads_and_vars = zip(grads, self.generator.trainable_weights)
-        self.optimizer.apply_gradients(grads_and_vars)
-
-        return {"d_loss": d_loss, "g_loss": g_loss}
+        return d_loss | g_loss
