@@ -24,7 +24,7 @@ EPOCHS = 250
 
 
 def build_dataset(batch_size):
-    def transform(image, _):
+    def transform(image, label):
         image = tf.cast(image, tf.float32)
         image /= 127.5
         image -= 1.0
