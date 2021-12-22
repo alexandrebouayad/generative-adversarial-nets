@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import tensorflow as tf
+import tensorflow_datasets as tfds
 from matplotlib import pyplot as plt
 from tensorflow import keras
 from tensorflow.keras.callbacks import Callback, ModelCheckpoint
@@ -23,14 +24,18 @@ EPOCHS = 250
 
 
 def build_dataset(batch_size):
-    (x_train, _), (x_test, _) = keras.datasets.mnist.load_data()
-    real_images = np.concatenate([x_train, x_test])
-    real_images = real_images.astype("float32") / 127.5 - 1.0
-    real_images = np.expand_dims(real_images, axis=-1)
-    dataset = tf.data.Dataset.from_tensor_slices(real_images)
-    buffer_size = len(dataset)
+    def transform(image, _):
+        image = tf.cast(image, tf.float32)
+        image /= 127.5
+        image -= 1.0
+        return image
 
-    return dataset.shuffle(buffer_size).batch(batch_size)
+    dataset = tfds.load("mnist", split="train+test", as_supervised=True)
+    dataset = dataset.map(transform)
+    dataset = dataset.shuffle(buffer_size=len(dataset))
+    dataset = dataset.batch(batch_size)
+
+    return dataset
 
 
 class ImageLogger(Callback):
